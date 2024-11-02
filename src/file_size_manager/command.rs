@@ -1,12 +1,18 @@
 mod options;
 
 use crate::file_size_manager::ParseArgError;
-use options::{get_option, is_option};
+use options::{get_option, is_option, Opt};
 use std::env::{self, Args};
 
 pub enum Command {
-    Split { entries: Vec<String>, options: u8 },
-    Merge { entries: Vec<String>, options: u8 },
+    Split {
+        entries: Vec<String>,
+        options: Vec<Opt>,
+    },
+    Merge {
+        entries: Vec<String>,
+        options: Vec<Opt>,
+    },
 }
 
 impl Command {
@@ -32,21 +38,21 @@ impl Command {
     }
 
     fn new_split(args: Args) -> Result<Self, ParseArgError> {
-        let (entries, options): (Vec<String>, u8) = Command::parse_args(args)?;
+        let (entries, options): (Vec<String>, Vec<Opt>) = Command::parse_args(args)?;
         Ok(Self::Split { entries, options })
     }
 
     fn new_merge(args: Args) -> Result<Self, ParseArgError> {
-        let (entries, options): (Vec<String>, u8) = Command::parse_args(args)?;
+        let (entries, options): (Vec<String>, Vec<Opt>) = Command::parse_args(args)?;
         Ok(Self::Merge { entries, options })
     }
 
-    fn parse_args(args: Args) -> Result<(Vec<String>, u8), ParseArgError> {
+    fn parse_args(mut args: Args) -> Result<(Vec<String>, Vec<Opt>), ParseArgError> {
         let mut entries: Vec<String> = Vec::new();
-        let mut options: u8 = 0;
-        for arg in args {
+        let mut options: Vec<Opt> = Vec::new();
+        while let Some(arg) = args.next() {
             if is_option(&arg) {
-                options += get_option(&arg)?;
+                options.push(get_option(&arg, &mut args)?);
             }
             entries.push(arg);
         }

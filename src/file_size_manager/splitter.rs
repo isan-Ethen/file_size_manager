@@ -4,7 +4,8 @@ use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
 
-const MIN_SIZE: u64 = 10;
+// 50 MiB
+const MIN_SIZE: u64 = 52428800;
 
 #[allow(unused)]
 pub struct Splitter<I>
@@ -12,7 +13,7 @@ where
     I: Iterator<Item = String>,
 {
     entries: I,
-    options: u8,
+    options: Vec<Opt>,
     fail_list: Vec<(String, RunCommandError)>,
 }
 
@@ -41,13 +42,13 @@ where
                     std::io::ErrorKind::Other => splitter.add_failure(
                         entry,
                         RunCommandError::WrongEntry(
-                            err.get_ref().expect("not error message").to_string(),
+                            err.get_ref().expect("no error message").to_string(),
                         ),
                     ),
                     _ => splitter.add_failure(
                         entry,
                         RunCommandError::ProcessFail(
-                            err.get_ref().expect("not error message").to_string(),
+                            err.get_ref().expect("no error message").to_string(),
                         ),
                     ),
                 }
@@ -74,7 +75,7 @@ where
 
         let mut cnt: i32 = 0;
 
-        let buffer: &mut [u8; 10] = &mut [0; MIN_SIZE as usize];
+        let buffer: &mut [u8] = &mut [0; MIN_SIZE as usize - 32];
 
         while f.stream_position()? < len - MIN_SIZE {
             f.read_exact(buffer)?;
