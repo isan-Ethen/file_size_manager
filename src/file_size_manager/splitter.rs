@@ -1,18 +1,26 @@
-use std::fs::{File, Metadata};
+use crate::file_size_manager::RunCommandError;
+use std::fs::{self, File};
 use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
 
 const MIN_SIZE: u64 = 10;
 
-pub struct Splitter {
-    entries: Vec<String>,
+#[allow(unused)]
+pub struct Splitter<I>
+where
+    I: Iterator<Item = String>,
+{
+    entries: I,
     options: u8,
-    fail_list: Vec<String>,
+    fail_list: Vec<(String, RunCommandError)>,
 }
 
-impl Splitter {
-    fn new(entries: Vec<String>, options: u8) -> Self {
+impl<I> Splitter<I>
+where
+    I: Iterator<Item = String>,
+{
+    fn new(entries: I, options: u8) -> Self {
         Self {
             entries,
             options,
@@ -20,23 +28,49 @@ impl Splitter {
         }
     }
 
-    pub fn run(entries: Vec<String>, options: u8) -> std::io::Result<()> {
-        let splitter: Splitter = Splitter::new(entries, options);
-        for file in splitter.entries.iter() {
-            let f: File = File::open(file)?;
-            let dirname: String = format!("sep-{}", file.replace(".", "_"));
-            splitter.split(f, file, dirname)?;
-        }
-        Ok(())
+    fn add_failure(&mut self, entry: String, err: RunCommandError) {
+        self.fail_list.push((entry, err));
     }
 
-    fn split(&self, mut f: File, filename: &String, dirname: String) -> std::io::Result<()> {
-        let metadata: Metadata = f.metadata()?;
-        let len: u64 = metadata.len();
+    pub fn run(entries: I, options: u8) {
+        let mut splitter: Splitter<I> = Splitter::new(entries, options);
+
+        while let Some(entry) = splitter.next_entry() {
+            if let Err(err) = splitter.split(&entry) {
+                match err.kind() {
+                    std::io::ErrorKind::Other => splitter.add_failure(
+                        entry,
+                        RunCommandError::WrongEntry(
+                            err.get_ref().expect("not error message").to_string(),
+                        ),
+                    ),
+                    _ => splitter.add_failure(
+                        entry,
+                        RunCommandError::ProcessFail(
+                            err.get_ref().expect("not error message").to_string(),
+                        ),
+                    ),
+                }
+            }
+        }
+
+        splitter.display_result();
+    }
+
+    fn next_entry(&mut self) -> Option<String> {
+        self.entries.next()
+    }
+
+    fn split(&self, entry: &String) -> std::io::Result<()> {
+        let mut f: File = File::open(entry)?;
+        let output_dir: String = format!("sep-{}", entry.replace(".", "_"));
+        let len: u64 = f.metadata()?.len();
 
         if len < MIN_SIZE {
             return Ok(());
         }
+
+        fs::create_dir_all(&output_dir)?;
 
         let mut cnt: i32 = 0;
 
@@ -44,16 +78,40 @@ impl Splitter {
 
         while f.stream_position()? < len - MIN_SIZE {
             f.read_exact(buffer)?;
-            let mut new_f: File = File::create(format!("{}/{}-{}.sep", dirname, filename, cnt))?;
+            let mut new_f: File = File::create(format!("{}/{}-{}.sep", output_dir, entry, cnt))?;
             new_f.write_all(buffer)?;
             cnt += 1;
         }
 
-        let mut buffer: Vec<u8> = Vec::new();
-        f.read_to_end(&mut buffer)?;
-        let mut new_f: File = File::create(format!("{}/{}-{}.sep", dirname, filename, cnt))?;
-        new_f.write_all(&buffer)?;
+        let mut remain_data: Vec<u8> = Vec::new();
+        f.read_to_end(&mut remain_data)?;
+        self.write_part(output_dir, entry, cnt, remain_data)
+    }
 
-        Ok(())
+    fn write_part<P: AsRef<[u8]>>(
+        &self,
+        output_dir: String,
+        base_name: &str,
+        cnt: i32,
+        data: P,
+    ) -> std::io::Result<()> {
+        let part_filename = format!("{}/{}-{}.sep", output_dir, base_name, cnt);
+        let mut part_file = File::create(part_filename)?;
+        part_file.write_all(data.as_ref())
+    }
+
+    fn display_result(self) {
+        if !self.fail_list.is_empty() {
+            eprintln!("Entries failed to process:");
+            for (entry, err) in self.fail_list {
+                eprintln!("{entry}: {err}");
+                if let Err(err) = fs::remove_dir(&entry) {
+                    match err.kind() {
+                        std::io::ErrorKind::NotFound => {}
+                        _ => eprintln!("failed to remove {}", entry),
+                    }
+                }
+            }
+        }
     }
 }

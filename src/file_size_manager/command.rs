@@ -12,13 +12,15 @@ pub enum Command {
 impl Command {
     pub fn get_sub_command() -> Result<Self, ParseArgError> {
         let mut args: Args = env::args().into_iter();
+
         args.next();
+
         if let Some(fname) = args.next() {
             match fname.as_str() {
                 "split" => Ok(Command::new_split(args)?),
                 "merge" => Ok(Command::new_merge(args)?),
                 _ => Err(ParseArgError::InvalidSubFunction(format!(
-                    "unknown function: {}",
+                    "unknown function provided: {}",
                     fname
                 ))),
             }
@@ -48,7 +50,6 @@ impl Command {
             }
             entries.push(arg);
         }
-        entries.sort();
         Ok((entries, options))
     }
 }
