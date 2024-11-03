@@ -67,19 +67,18 @@ where
 
     fn split(&self, entry: &String) -> std::io::Result<()> {
         let mut f: File = File::open(entry)?;
-        let output_dir: String = format!("sep-{}", entry.replace(".", "_"));
         let len: u64 = f.metadata()?.len();
-
         let size: u64 = self.size();
 
         if len < size {
             return Ok(());
         }
 
+        let output_dir: String = self.output_dir(entry);
+
         fs::create_dir_all(&output_dir)?;
 
         let mut cnt: i32 = 0;
-
         let mut buffer: Vec<u8> = vec![0u8; size as usize];
 
         while f.stream_position()? < len - size {
@@ -93,8 +92,15 @@ where
         self.write_part(&output_dir, entry, cnt, remain_data)
     }
 
+    fn output_dir(&self, entry: &String) -> String {
+        match self.options.get(&Key::Output) {
+            Some(Opt::Output(dirname)) => dirname.clone(),
+            _ => format!("sep-{}", entry.replace(".", "_")),
+        }
+    }
+
     fn size(&self) -> u64 {
-        let size = match self.options.get(&Key::Size) {
+        let size: &u64 = match self.options.get(&Key::Size) {
             Some(Opt::Size(size)) => size,
             _ => &DEFAULT_SIZE,
         };
