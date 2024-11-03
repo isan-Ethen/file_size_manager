@@ -38,7 +38,6 @@ where
 
         while let Some(entry) = merger.next_entry() {
             if let Err(err) = merger.merge(&entry) {
-                eprintln!("{:?}", err);
                 match err.kind() {
                     std::io::ErrorKind::Other => merger.add_failure(
                         entry,
@@ -64,7 +63,7 @@ where
     }
 
     fn merge(&self, entry: &String) -> std::io::Result<()> {
-        let file: String = entry.replace("sep-", "").replace("_", ".");
+        let file: String = self.output_file(entry);
 
         let mut new_f: File = File::create(file)?;
         let mut buffer: Vec<u8> = Vec::new();
@@ -82,6 +81,13 @@ where
         }
 
         new_f.write_all(&buffer)
+    }
+
+    fn output_file(&self, entry: &String) -> String {
+        match self.options.get(&Key::Output) {
+            Some(Opt::Output(filename)) => filename.clone(),
+            _ => entry.replace("sep-", "").replace("_", "."),
+        }
     }
 
     fn get_file_contents(&self, path: PathBuf) -> std::io::Result<Vec<u8>> {
