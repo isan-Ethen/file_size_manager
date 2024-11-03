@@ -16,7 +16,8 @@ impl Display for RunCommandError {
 
 pub enum ParseArgError {
     InvalidSubFunction(String),
-    UnknownOption(String),
+    InvalidOption(String),
+    MissingArgument(String),
 }
 
 impl Display for ParseArgError {
@@ -25,7 +26,8 @@ impl Display for ParseArgError {
             ParseArgError::InvalidSubFunction(msg) => {
                 write!(f, "invalid sub function: {}", msg)
             }
-            ParseArgError::UnknownOption(msg) => write!(f, "unknown option: {}", msg),
+            ParseArgError::InvalidOption(msg) => write!(f, "invalid option: {}", msg),
+            ParseArgError::MissingArgument(msg) => write!(f, "missing argument: {}", msg),
         }
     }
 }

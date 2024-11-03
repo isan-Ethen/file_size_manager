@@ -2,6 +2,7 @@ mod command;
 mod errors;
 mod merger;
 mod splitter;
+pub mod util;
 
 pub use command::Command;
 pub use errors::{ParseArgError, RunCommandError};

@@ -1,4 +1,7 @@
+use crate::file_size_manager::command::{Key, Opt};
+use crate::file_size_manager::util::get_content_hash;
 use crate::file_size_manager::RunCommandError;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::io::Write;
@@ -10,7 +13,7 @@ where
     I: Iterator<Item = String>,
 {
     entries: I,
-    options: u8,
+    options: HashMap<Key, Opt>,
     fail_list: Vec<(String, RunCommandError)>,
 }
 
@@ -18,7 +21,7 @@ impl<I> Merger<I>
 where
     I: Iterator<Item = String>,
 {
-    fn new(entries: I, options: u8) -> Self {
+    fn new(entries: I, options: HashMap<Key, Opt>) -> Self {
         Self {
             entries,
             options,
@@ -30,22 +33,23 @@ where
         self.fail_list.push((entry, err));
     }
 
-    pub fn run(entries: I, options: u8) {
+    pub fn run(entries: I, options: HashMap<Key, Opt>) {
         let mut merger: Merger<I> = Merger::new(entries, options);
 
         while let Some(entry) = merger.next_entry() {
             if let Err(err) = merger.merge(&entry) {
+                eprintln!("{:?}", err);
                 match err.kind() {
                     std::io::ErrorKind::Other => merger.add_failure(
                         entry,
                         RunCommandError::WrongEntry(
-                            err.get_ref().expect("not error message").to_string(),
+                            err.get_ref().expect("no error message").to_string(),
                         ),
                     ),
                     _ => merger.add_failure(
                         entry,
                         RunCommandError::ProcessFail(
-                            err.get_ref().expect("not error message").to_string(),
+                            err.get_ref().expect("no error message").to_string(),
                         ),
                     ),
                 }
@@ -73,18 +77,38 @@ where
         entries.sort();
 
         for entry in entries {
-            println!("{:?}", entry);
-            buffer.extend_from_slice(&self.read_file_contents(entry)?);
+            let content = &self.get_file_contents(entry)?;
+            buffer.extend_from_slice(content);
         }
 
         new_f.write_all(&buffer)
     }
 
-    fn read_file_contents(&self, path: std::path::PathBuf) -> std::io::Result<Vec<u8>> {
-        let mut file = File::open(path)?;
+    fn get_file_contents(&self, path: PathBuf) -> std::io::Result<Vec<u8>> {
+        let mut file = File::open(&path)?;
         let mut content = Vec::new();
+        let mut stored_hash = [0u8; 32];
+        file.read_exact(&mut stored_hash)?;
         file.read_to_end(&mut content)?;
-        Ok(content)
+        if Merger::<I>::check_hash(stored_hash, get_content_hash(&content)) {
+            Ok(content)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("file content edited: {}", path.display()),
+            ))
+        }
+    }
+
+    fn check_hash(stored_hash: [u8; 32], content_hash: [u8; 32]) -> bool {
+        let mut eq: bool = true;
+        for i in 0..32 {
+            if stored_hash[i] != content_hash[i] {
+                println!("wrong!: {}, {}", stored_hash[i], content_hash[i]);
+                eq = false;
+            }
+        }
+        eq
     }
 
     fn display_result(self) {

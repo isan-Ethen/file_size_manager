@@ -1,10 +1,14 @@
+use crate::file_size_manager::command::{Key, Opt};
+use crate::file_size_manager::util::get_content_hash;
 use crate::file_size_manager::RunCommandError;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
 
-const MIN_SIZE: u64 = 10;
+// 50 MiB
+const DEFAULT_SIZE: u64 = 52428800;
 
 #[allow(unused)]
 pub struct Splitter<I>
@@ -12,7 +16,7 @@ where
     I: Iterator<Item = String>,
 {
     entries: I,
-    options: u8,
+    options: HashMap<Key, Opt>,
     fail_list: Vec<(String, RunCommandError)>,
 }
 
@@ -20,7 +24,7 @@ impl<I> Splitter<I>
 where
     I: Iterator<Item = String>,
 {
-    fn new(entries: I, options: u8) -> Self {
+    fn new(entries: I, options: HashMap<Key, Opt>) -> Self {
         Self {
             entries,
             options,
@@ -32,7 +36,7 @@ where
         self.fail_list.push((entry, err));
     }
 
-    pub fn run(entries: I, options: u8) {
+    pub fn run(entries: I, options: HashMap<Key, Opt>) {
         let mut splitter: Splitter<I> = Splitter::new(entries, options);
 
         while let Some(entry) = splitter.next_entry() {
@@ -41,13 +45,13 @@ where
                     std::io::ErrorKind::Other => splitter.add_failure(
                         entry,
                         RunCommandError::WrongEntry(
-                            err.get_ref().expect("not error message").to_string(),
+                            err.get_ref().expect("no error message").to_string(),
                         ),
                     ),
                     _ => splitter.add_failure(
                         entry,
                         RunCommandError::ProcessFail(
-                            err.get_ref().expect("not error message").to_string(),
+                            err.get_ref().expect("no error message").to_string(),
                         ),
                     ),
                 }
@@ -66,7 +70,9 @@ where
         let output_dir: String = format!("sep-{}", entry.replace(".", "_"));
         let len: u64 = f.metadata()?.len();
 
-        if len < MIN_SIZE {
+        let size: u64 = self.size();
+
+        if len < size {
             return Ok(());
         }
 
@@ -74,29 +80,38 @@ where
 
         let mut cnt: i32 = 0;
 
-        let buffer: &mut [u8; 10] = &mut [0; MIN_SIZE as usize];
+        let mut buffer: Vec<u8> = vec![0u8; size as usize];
 
-        while f.stream_position()? < len - MIN_SIZE {
-            f.read_exact(buffer)?;
-            let mut new_f: File = File::create(format!("{}/{}-{}.sep", output_dir, entry, cnt))?;
-            new_f.write_all(buffer)?;
+        while f.stream_position()? < len - size {
+            f.read_exact(&mut buffer)?;
+            self.write_part(&output_dir, entry, cnt, &buffer)?;
             cnt += 1;
         }
 
         let mut remain_data: Vec<u8> = Vec::new();
         f.read_to_end(&mut remain_data)?;
-        self.write_part(output_dir, entry, cnt, remain_data)
+        self.write_part(&output_dir, entry, cnt, remain_data)
+    }
+
+    fn size(&self) -> u64 {
+        let size = match self.options.get(&Key::Size) {
+            Some(Opt::Size(size)) => size,
+            _ => &DEFAULT_SIZE,
+        };
+        size - 32u64
     }
 
     fn write_part<P: AsRef<[u8]>>(
         &self,
-        output_dir: String,
+        output_dir: &str,
         base_name: &str,
         cnt: i32,
         data: P,
     ) -> std::io::Result<()> {
         let part_filename = format!("{}/{}-{}.sep", output_dir, base_name, cnt);
         let mut part_file = File::create(part_filename)?;
+        let hash = get_content_hash(&data);
+        part_file.write_all(hash.as_ref())?;
         part_file.write_all(data.as_ref())
     }
 
